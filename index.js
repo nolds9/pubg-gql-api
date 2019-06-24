@@ -1,5 +1,7 @@
 const fetch = require("node-fetch");
-const { ApolloServer, gql } = require("apollo-server");
+const { ApolloServer, gql } = require("apollo-server-express");
+const express = require("express");
+
 require("dotenv").config();
 
 const baseUrl = "https://api.pubg.com/shards/steam/";
@@ -52,8 +54,15 @@ async function getAccountId(_, { username = "" }) {
   return player.id || "";
 }
 
-const server = new ApolloServer({ typeDefs, resolvers });
-
-server.listen().then(({ url }) => {
-  console.log(`🚀  Server ready at ${url}`);
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  introspection: true,
+  playground: true,
+  path: "/"
 });
+
+const app = express();
+server.applyMiddleware({ app });
+
+module.exports = app;
