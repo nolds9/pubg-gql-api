@@ -12,13 +12,26 @@ const typeDefs = gql`
     squad
   }
 
+  enum Perspective {
+    fpp
+    tpp
+  }
+
   type Query {
-    getAccountId(username: String!): String!
+    getAccountId(username: String!): ID!
     getLifetimeStats(
       accountId: String!
-      gameMode: GameMode! = solo
-      perspective: String!
+      gameMode: GameMode = solo
+      perspective: Perspective = fpp
     ): GameModeStats!
+    getSeasons: [SeasonMeta!]!
+    getCurrentSeason: SeasonMeta
+  }
+
+  type SeasonMeta {
+    id: ID!
+    isCurrentSeason: Boolean!
+    isOffSeason: Boolean!
   }
 
   type GameModeStats {
@@ -64,7 +77,9 @@ const typeDefs = gql`
 const resolvers = {
   Query: {
     getAccountId,
-    getLifetimeStats
+    getLifetimeStats,
+    getSeasons,
+    getCurrentSeason
   }
 };
 
@@ -74,22 +89,24 @@ const apiHeaders = {
   Authorization: `Bearer ${process.env.PUBG_API_KEY}`
 };
 
+async function fetchPubgData(url = "", options = {}, isDataArray = false) {
+  const response = await fetch(url, {
+    method: "get",
+    headers: apiHeaders,
+    ...options
+  }).then(res => res.json());
+  validateResponse(response, isDataArray);
+  return response || {};
+}
+
 async function getAccountId(_, args = {}) {
   validateArgs(args, ["username"]);
   validateApiKey();
 
   const { username = "" } = args;
-
   const url = `${baseUrl}players?filter[playerNames]=${username}`;
-
-  const response = await fetch(url, {
-    method: "get",
-    headers: apiHeaders
-  }).then(res => res.json());
-
-  validateResponse(response, true);
-
-  const player = response.data[0];
+  const { data = [] } = await fetchPubgData(url, {}, true);
+  const player = data[0] || {};
 
   return player.id || "";
 }
@@ -100,19 +117,30 @@ async function getLifetimeStats(_, args) {
 
   const { accountId = "", gameMode = "solo", perspective = "fpp" } = args;
   const url = `${baseUrl}players/${accountId}/seasons/lifetime`;
-
-  const response = await fetch(url, {
-    method: "get",
-    headers: apiHeaders
-  }).then(res => res.json());
-
-  validateResponse(response);
-
+  const { data = {} } = await fetchPubgData(url);
   const gameModeKey = perspective === "fpp" ? `${gameMode}-fpp` : gameMode;
-  const stats =
-    (response.data.attributes && response.data.attributes.gameModeStats) || {};
+  const stats = (data.attributes && data.attributes.gameModeStats) || {};
 
   return stats[gameModeKey] || {};
+}
+
+async function getSeasons(...args) {
+  validateApiKey();
+
+  const url = `${baseUrl}seasons`;
+  const { data = [] } = await fetchPubgData(url, {}, true);
+
+  return data.map(({ id, attributes = {} } = {}) => ({
+    id,
+    isCurrentSeason: attributes.isCurrentSeason || false,
+    isOffSeason: attributes.isOffSeason || false
+  }));
+}
+
+async function getCurrentSeason(...args) {
+  const seasons = (await getSeasons(...args)) || [];
+
+  return seasons.find(season => !!season.isCurrentSeason);
 }
 
 const server = new ApolloServer({
