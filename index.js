@@ -32,6 +32,13 @@ const typeDefs = gql`
       gameMode: GameMode = solo
       perspective: Perspective = fpp
     ): GameModeStats!
+    getSeasonMatchIds(
+      accountId: ID!
+      seasonId: ID!
+      gameMode: GameMode = solo
+      perspective: Perspective = fpp
+    ): [ID!]!
+    getPlayerMatchIds(accountId: ID!): [ID!]!
   }
 
   type SeasonMeta {
@@ -86,18 +93,21 @@ const resolvers = {
     getLifetimeStats,
     getSeasons,
     getCurrentSeason,
-    getSeasonStats
+    getSeasonStats,
+    getSeasonMatchIds,
+    getPlayerMatchIds
   }
 };
 
-const baseUrl = "https://api.pubg.com/shards/steam/";
+const baseUrl = "https://api.pubg.com/shards/steam";
 const apiHeaders = {
   accept: "application/vnd.api+json",
   Authorization: `Bearer ${process.env.PUBG_API_KEY}`
 };
 
+// HELPERS
 async function fetchPubgData(url = "", options = {}, isDataArray = false) {
-  const response = await fetch(url, {
+  const response = await fetch(`${baseUrl}${url}`, {
     method: "get",
     headers: apiHeaders,
     ...options
@@ -106,12 +116,31 @@ async function fetchPubgData(url = "", options = {}, isDataArray = false) {
   return response || {};
 }
 
+async function fetchSeasonData({ accountId = "", seasonId = "" } = {}) {
+  const url = `/players/${accountId}/seasons/${seasonId}`;
+  const { data = {} } = await fetchPubgData(url);
+  return data || {};
+}
+
+function getGameModeKey({ gameMode = "solo", perspective = "fpp" } = {}) {
+  return perspective === "fpp" ? `${gameMode}-fpp` : gameMode;
+}
+
+function capitalize(str = "") {
+  return `${str.slice(0, 1).toUpperCase()}${str.slice(1)}`;
+}
+
+function getMatchesKey({ gameMode = "solo", perspective = "fpp" } = {}) {
+  return `matches${capitalize(gameMode)}${perspective === "fpp" ? "FPP" : ""}`;
+}
+
+// RESOLVERS
 async function getAccountId(_, args = {}) {
   validateArgs(args, ["username"]);
   validateApiKey();
 
   const { username = "" } = args;
-  const url = `${baseUrl}players?filter[playerNames]=${username}`;
+  const url = `/players?filter[playerNames]=${username}`;
   const { data = [] } = await fetchPubgData(url, {}, true);
   const player = data[0] || {};
 
@@ -123,7 +152,7 @@ async function getLifetimeStats(_, args) {
   validateApiKey();
 
   const { accountId = "", gameMode = "solo", perspective = "fpp" } = args;
-  const url = `${baseUrl}players/${accountId}/seasons/lifetime`;
+  const url = `/players/${accountId}/seasons/lifetime`;
   const { data = {} } = await fetchPubgData(url);
   const gameModeKey = perspective === "fpp" ? `${gameMode}-fpp` : gameMode;
   const stats = (data.attributes && data.attributes.gameModeStats) || {};
@@ -134,7 +163,7 @@ async function getLifetimeStats(_, args) {
 async function getSeasons(...args) {
   validateApiKey();
 
-  const url = `${baseUrl}seasons`;
+  const url = `/seasons`;
   const { data = [] } = await fetchPubgData(url, {}, true);
 
   return data.map(({ id, attributes = {} } = {}) => ({
@@ -154,18 +183,36 @@ async function getSeasonStats(_, args) {
   validateArgs(args, ["accountId", "gameMode", "perspective", "seasonId"]);
   validateApiKey();
 
-  const {
-    accountId = "",
-    gameMode = "solo",
-    perspective = "fpp",
-    seasonId
-  } = args;
-  const url = `${baseUrl}players/${accountId}/seasons/${seasonId}`;
-  const { data = {} } = await fetchPubgData(url);
-  const gameModeKey = perspective === "fpp" ? `${gameMode}-fpp` : gameMode;
+  const data = await fetchSeasonData(args);
   const stats = (data.attributes && data.attributes.gameModeStats) || {};
+  const gameModeKey = getGameModeKey(args);
 
   return stats[gameModeKey] || {};
+}
+
+async function getSeasonMatchIds(_, args) {
+  validateArgs(args, ["accountId", "gameMode", "perspective", "seasonId"]);
+  validateApiKey();
+
+  const data = await fetchSeasonData(args);
+  const { relationships = {} } = data;
+  const matchesKey = getMatchesKey(args);
+  const { data: matches = [] } = relationships[matchesKey] || {};
+
+  return matches.map(match => match.id);
+}
+
+async function getPlayerMatchIds(_, args) {
+  validateArgs(args, ["accountId"]);
+  validateApiKey();
+
+  const { accountId = "" } = args;
+  const url = `/players/${accountId}`;
+  const { data = {} } = await fetchPubgData(url);
+  const { matches: { data: matches } = { matches: { data: [] } } } =
+    data.relationships || {};
+
+  return matches.map(match => match.id);
 }
 
 const server = new ApolloServer({
