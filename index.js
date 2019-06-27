@@ -20,12 +20,18 @@ const typeDefs = gql`
   type Query {
     getAccountId(username: String!): ID!
     getLifetimeStats(
-      accountId: String!
+      accountId: ID!
       gameMode: GameMode = solo
       perspective: Perspective = fpp
     ): GameModeStats!
     getSeasons: [SeasonMeta!]!
     getCurrentSeason: SeasonMeta
+    getSeasonStats(
+      accountId: ID!
+      seasonId: ID!
+      gameMode: GameMode = solo
+      perspective: Perspective = fpp
+    ): GameModeStats!
   }
 
   type SeasonMeta {
@@ -79,7 +85,8 @@ const resolvers = {
     getAccountId,
     getLifetimeStats,
     getSeasons,
-    getCurrentSeason
+    getCurrentSeason,
+    getSeasonStats
   }
 };
 
@@ -143,6 +150,24 @@ async function getCurrentSeason(...args) {
   return seasons.find(season => !!season.isCurrentSeason);
 }
 
+async function getSeasonStats(_, args) {
+  validateArgs(args, ["accountId", "gameMode", "perspective", "seasonId"]);
+  validateApiKey();
+
+  const {
+    accountId = "",
+    gameMode = "solo",
+    perspective = "fpp",
+    seasonId
+  } = args;
+  const url = `${baseUrl}players/${accountId}/seasons/${seasonId}`;
+  const { data = {} } = await fetchPubgData(url);
+  const gameModeKey = perspective === "fpp" ? `${gameMode}-fpp` : gameMode;
+  const stats = (data.attributes && data.attributes.gameModeStats) || {};
+
+  return stats[gameModeKey] || {};
+}
+
 const server = new ApolloServer({
   typeDefs,
   resolvers,
@@ -152,6 +177,11 @@ const server = new ApolloServer({
 });
 
 const app = express();
+
+app.get("/", (_, res) => {
+  res.redirect("/graphql");
+});
+
 server.applyMiddleware({ app });
 
 module.exports = app;
