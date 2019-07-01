@@ -40,6 +40,11 @@ const typeDefs = gql`
     ): [ID!]!
     getPlayerMatchIds(accountId: ID!): [ID!]!
     getMatchStats(matchId: ID!): MatchStats!
+    getMatchStatsByPlayer(
+      matchId: ID!
+      username: String
+      accountId: ID
+    ): PlayerMatchStats!
   }
 
   type SeasonMeta {
@@ -150,7 +155,8 @@ const resolvers = {
     getSeasonStats,
     getSeasonMatchIds,
     getPlayerMatchIds,
-    getMatchStats
+    getMatchStats,
+    getMatchStatsByPlayer
   }
 };
 
@@ -308,6 +314,22 @@ async function getMatchStats(_, args) {
     teams,
     players
   };
+}
+
+async function getMatchStatsByPlayer(_, args) {
+  validateApiKey();
+
+  const { matchId = "", username = "", accountId = "" } = args;
+
+  if (!username && !accountId) {
+    throw new Error("Must provide username or accountId");
+  }
+
+  const matchStats = await getMatchStats(undefined, { matchId });
+
+  return matchStats.players.find(
+    p => p.name === username || p.playerId === accountId
+  );
 }
 
 const server = new ApolloServer({
