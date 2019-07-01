@@ -39,6 +39,7 @@ const typeDefs = gql`
       perspective: Perspective = fpp
     ): [ID!]!
     getPlayerMatchIds(accountId: ID!): [ID!]!
+    getMatchStats(matchId: ID!): MatchStats!
   }
 
   type SeasonMeta {
@@ -85,6 +86,59 @@ const typeDefs = gql`
     winPoints: Float
     wins: Float
   }
+
+  type MatchStats {
+    id: ID!
+    meta: MatchMeta
+    teams: [MatchRoster]!
+    players: [PlayerMatchStats]!
+  }
+
+  type MatchMeta {
+    createdAt: String
+    duration: Float
+    gameMode: String
+    mapName: String
+    isCustomMatch: Boolean
+    seasonState: String
+  }
+
+  type MatchRoster {
+    id: ID
+    rank: Int
+    teamId: ID
+    won: Boolean
+    playerIds: [ID]!
+  }
+
+  type PlayerMatchStats {
+    id: ID
+    DBNOs: Int
+    asssits: Int
+    boosts: Int
+    damageDealt: Float
+    deathType: String
+    headshotKills: Int
+    heals: Int
+    killPlace: Int
+    killStreaks: Int
+    kills: Int
+    longestKill: Float
+    name: String
+    playerId: ID
+    revives: Int
+    rideDistance: Float
+    roadKills: Int
+    swimDistance: Float
+    teamKills: Int
+    timeSurvived: Float
+    vehicleDestroys: Int
+    walkDistance: Float
+    weaponsAcuired: Int
+    winPlace: Int
+    winPoints: Float
+    winPointsDelta: Float
+  }
 `;
 
 const resolvers = {
@@ -95,7 +149,8 @@ const resolvers = {
     getCurrentSeason,
     getSeasonStats,
     getSeasonMatchIds,
-    getPlayerMatchIds
+    getPlayerMatchIds,
+    getMatchStats
   }
 };
 
@@ -213,6 +268,46 @@ async function getPlayerMatchIds(_, args) {
     data.relationships || {};
 
   return matches.map(match => match.id);
+}
+
+async function getMatchStats(_, args) {
+  validateArgs(args, ["matchId"]);
+  validateApiKey();
+
+  const { matchId = "" } = args;
+  const url = `/matches/${matchId}`;
+  const { data = {}, included = [] } = await fetchPubgData(url);
+
+  const matchMeta = data.attributes || {};
+  const rosterData = included.filter((item = {}) => item.type === "roster");
+  const participantData = included.filter(
+    (item = {}) => item.type === "participant"
+  );
+
+  const players = participantData.map(p => ({
+    id: p.id,
+    ...((p.attributes && p.attributes.stats) || {})
+  }));
+
+  const teams = rosterData.map(r => {
+    const { stats = {}, won = false } = r.attributes || {};
+    const { participants = {} } = r.relationships;
+    const playerIds = (participants.data || []).map(p => p.id);
+
+    return {
+      id: r.id,
+      ...stats,
+      won: won == "true",
+      playerIds
+    };
+  });
+
+  return {
+    id: data.id,
+    meta: matchMeta,
+    teams,
+    players
+  };
 }
 
 const server = new ApolloServer({
