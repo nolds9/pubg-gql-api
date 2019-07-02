@@ -45,6 +45,7 @@ const typeDefs = gql`
       username: String
       accountId: ID
     ): PlayerMatchStats!
+    getWinningTeamMatchStats(matchId: ID!): [PlayerMatchStats!]!
   }
 
   type SeasonMeta {
@@ -119,7 +120,7 @@ const typeDefs = gql`
   type PlayerMatchStats {
     id: ID
     DBNOs: Int
-    asssits: Int
+    assists: Int
     boosts: Int
     damageDealt: Float
     deathType: String
@@ -139,7 +140,7 @@ const typeDefs = gql`
     timeSurvived: Float
     vehicleDestroys: Int
     walkDistance: Float
-    weaponsAcuired: Int
+    weaponsAcquired: Int
     winPlace: Int
     winPoints: Float
     winPointsDelta: Float
@@ -156,7 +157,8 @@ const resolvers = {
     getSeasonMatchIds,
     getPlayerMatchIds,
     getMatchStats,
-    getMatchStatsByPlayer
+    getMatchStatsByPlayer,
+    getWinningTeamMatchStats
   }
 };
 
@@ -317,8 +319,6 @@ async function getMatchStats(_, args) {
 }
 
 async function getMatchStatsByPlayer(_, args) {
-  validateApiKey();
-
   const { matchId = "", username = "", accountId = "" } = args;
 
   if (!username && !accountId) {
@@ -330,6 +330,14 @@ async function getMatchStatsByPlayer(_, args) {
   return matchStats.players.find(
     p => p.name === username || p.playerId === accountId
   );
+}
+
+async function getWinningTeamMatchStats(_, args) {
+  const { teams = [], players = [] } = await getMatchStats(undefined, args);
+  const winningTeam = teams.find(team => team.won) || {};
+  const { playerIds = [] } = winningTeam;
+
+  return playerIds.map(id => players.find(p => p.id === id));
 }
 
 const server = new ApolloServer({
